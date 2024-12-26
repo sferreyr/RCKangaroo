@@ -317,7 +317,7 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 	}
 
 	printf("\r\nSolving point: Range %d bits, DP %d, start...\r\n", Range, DP);
-	double ops = 1.15 * pow(2.0, (double)Range / 2);
+	double ops = 1.15 * pow(2.0, Range / 2.0);
 	double dp_val = (double)(1ull << DP);
 	double ram = (32 + 4 + 4) * ops / dp_val; //+4 for grow allocation and memory fragmentation
 	ram += sizeof(TListRec) * 256 * 256 * 256; //3byte-prefix table
@@ -436,7 +436,7 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 #endif
 	}
 
-	double K = (double)PntTotalOps / pow(2.0, Range / 2);
+	double K = (double)PntTotalOps / pow(2.0, Range / 2.0);
 	printf("Point solved, K: %.3f (with DP and GPU overheads)\r\n\r\n", K);
 
 	db.Clear();
@@ -661,7 +661,7 @@ int main(int argc, char* argv[])
 			TotalOps += PntTotalOps;
 			TotalSolved++;
 			u64 ops_per_pnt = TotalOps / TotalSolved;
-			double K = (double)ops_per_pnt / pow(2.0, gRange / 2);
+			double K = (double)ops_per_pnt / pow(2.0, gRange / 2.0);
 			printf("Points solved: %d, average K: %.3f (with DP and GPU overheads)\r\n", TotalSolved, K);
 			//if (TotalSolved >= 100) break; //dbg
 		}
