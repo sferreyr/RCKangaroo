@@ -90,6 +90,8 @@ private:
 	TListRec lists[256][256][256];
 	int lower_bound(TListRec* list, int mps_ind, u8* data);
 public:
+	u8 Header[256];
+
 	TFastBase();
 	~TFastBase();
 	void Clear();
@@ -97,5 +99,8 @@ public:
 	u8* FindDataBlock(u8* data);
 	u8* FindOrAddDataBlock(u8* data);
 	u64 GetBlockCnt();
+	bool LoadFromFile(char* fn);
+	bool SaveToFile(char* fn);
 };
 
+bool IsFileExist(char* fn);

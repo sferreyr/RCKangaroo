@@ -14,6 +14,7 @@ cudaError_t cuSetGpuParams(TKparams Kparams, u64* _jmp2_table);
 void CallGpuKernelGen(TKparams Kparams);
 void CallGpuKernelABC(TKparams Kparams);
 void AddPointsToList(u32* data, int cnt, u64 ops_cnt);
+extern bool gGenMode; //tames generation mode
 
 int RCGpuKang::CalcKangCnt()
 {
@@ -52,7 +53,8 @@ bool RCGpuKang::Prepare(EcPoint _PntToSolve, int _Range, int _DP, EcJMP* _EcJump
 	Kparams.DP = DP;
 	Kparams.KernelA_LDS_Size = 64 * JMP_CNT + 16 * Kparams.BlockSize;
 	Kparams.KernelB_LDS_Size = 64 * JMP_CNT;
-	Kparams.KernelC_LDS_Size = 96 * JMP_CNT;	
+	Kparams.KernelC_LDS_Size = 96 * JMP_CNT;
+	Kparams.IsGenMode = gGenMode;
 
 //allocate gpu mem
 	u64 size;

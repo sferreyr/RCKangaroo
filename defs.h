@@ -22,7 +22,8 @@ typedef char i8;
 #define MAX_GPU_CNT			32
 
 //must be divisible by MD_LEN
-#define STEP_CNT			500
+#define STEP_CNT			1000
+
 #define JMP_CNT				512
 
 //use different options for cards older than RTX 40xx
@@ -87,6 +88,7 @@ struct TKparams
 	u64* LoopTable;
 	u32* dbg_buf;
 	u32* LoopedKangs;
+	bool IsGenMode; //tames generation mode
 
 	u32 KernelA_LDS_Size;
 	u32 KernelB_LDS_Size;

@@ -113,6 +113,7 @@ void* MemPool::GetRecPtr(u32 cmp_ptr)
 TFastBase::TFastBase()
 {
 	memset(lists, 0, sizeof(lists));
+	memset(Header, 0, sizeof(Header));
 }
 
 TFastBase::~TFastBase()
@@ -225,3 +226,87 @@ label_not_found:
 	return NULL;
 }
 
+//slow but I hope you are not going to create huge DB with this proof-of-concept software
+bool TFastBase::LoadFromFile(char* fn)
+{
+	Clear();
+	FILE* fp = fopen(fn, "rb");
+	if (!fp)
+		return false;
+	if (fread(Header, 1, sizeof(Header), fp) != sizeof(Header))
+	{
+		fclose(fp);
+		return false;
+	}
+	for (int i = 0; i < 256; i++)
+		for (int j = 0; j < 256; j++)
+			for (int k = 0; k < 256; k++)
+			{
+				TListRec* list = &lists[i][j][k];
+				fread(&list->cnt, 1, 2, fp);
+				if (list->cnt)
+				{
+					u32 grow = list->cnt / 2;
+					if (grow < DB_MIN_GROW_CNT)
+						grow = DB_MIN_GROW_CNT;
+					u32 newcap = list->cnt + grow;
+					if (newcap > 0xFFFF)
+						newcap = 0xFFFF;
+					list->data = (u32*)realloc(list->data, newcap * sizeof(u32));
+					list->capacity = newcap;
+
+					for (int m = 0; m < list->cnt; m++)
+					{
+						u32 cmp_ptr;
+						void* ptr = mps[i].AllocRec(&cmp_ptr);
+						list->data[m] = cmp_ptr;
+						if (fread(ptr, 1, DB_REC_LEN, fp) != DB_REC_LEN)
+						{
+							fclose(fp);
+							return false;
+						}
+					}
+				}
+			}
+	fclose(fp);
+	return true;
+}
+
+bool TFastBase::SaveToFile(char* fn)
+{
+	FILE* fp = fopen(fn, "wb");
+	if (!fp)
+		return false;
+	if (fwrite(Header, 1, sizeof(Header), fp) != sizeof(Header))
+	{
+		fclose(fp);
+		return false;
+	}
+	for (int i = 0; i < 256; i++)
+		for (int j = 0; j < 256; j++)
+			for (int k = 0; k < 256; k++)
+			{
+				TListRec* list = &lists[i][j][k];
+				fwrite(&list->cnt, 1, 2, fp);
+				for (int m = 0; m < list->cnt; m++)
+				{
+					void* ptr = mps[i].GetRecPtr(list->data[m]);
+					if (fwrite(ptr, 1, DB_REC_LEN, fp) != DB_REC_LEN)
+					{
+						fclose(fp);
+						return false;
+					}
+				}
+			}
+	fclose(fp);
+	return true;
+}
+
+bool IsFileExist(char* fn)
+{
+	FILE* fp = fopen(fn, "rb");
+	if (!fp)
+		return false;
+	fclose(fp);
+	return true;
+}

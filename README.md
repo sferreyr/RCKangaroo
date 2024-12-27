@@ -30,12 +30,21 @@ Discussion thread: https://bitcointalk.org/index.php?topic=5517607
 
 <b>-dp</b>		DP bits. Must be in range 14...60. Low DP bits values cause larger DB but reduces DP overhead and vice versa. 
 
+<b>-max</b>		option to limit max number of operations. For example, value 5.5 limits number of operations to 5.5 * 1.15 * sqrt(range), software stops when the limit is reached. 
+
+<b>-tames</b>		filename with tames. If file not found, software generates tames (option "-max" is required) and saves them to the file. If the file is found, software loads tames to speedup solving. 
+
 When public key is solved, software displays it and also writes it to "RESULTS.TXT" file. 
 
 Sample command line for puzzle #85:
 
 RCKangaroo.exe -dp 16 -range 84 -start 1000000000000000000000 -pubkey 0329c4574a4fd8c810b7e42a4b398882b381bcd85e40c6883712912d167c83e73a
 
+Sample command to generate tames:
+
+RCKangaroo.exe -dp 16 -range 76 -tames tames76.dat -max 10
+
+Then you can restart software with same parameters to see less K in benchmark mode or add "-tames tames76.dat" to solve some public key in 76-bit range faster.
 
 <b>Some notes:</b>
 
@@ -46,6 +55,11 @@ Overall, this translates to roughly a 25% net improvement, which should not be i
 
 
 <b>Changelog:</b>
+
+v3.0:
+
+- added "-tames" and "-max" options.
+- fixed some bugs.
 
 v2.0:
 

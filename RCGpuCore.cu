@@ -84,7 +84,7 @@ __global__ void KernelA(const TKparams Kparams)
 		__align__(16) u64 jmp_x[4];
 		__align__(16) u64 jmp_y[4];
 		
-		//first step
+		//first group
 		LOAD_VAL_256(x, L2x, 0);
 		jmp_ind = x[0] % JMP_CNT;
 		jmp_table = ((L1S2 >> 0) & 1) ? jmp2_table : jmp1_table;
@@ -150,11 +150,11 @@ __global__ void KernelA(const TKparams Kparams)
 			{
 				u32 jmp_next = x[0] % JMP_CNT;
 				jmp_next |= ((u32)y[0] & 1) ? 0 : INV_FLAG; //inverted
-				L1S2 |= (jmp_ind == jmp_next) ? (1 << group) : 0; //loop L1S2 detected
+				L1S2 |= (jmp_ind == jmp_next) ? (1u << group) : 0; //loop L1S2 detected
 			}
 			else
 			{
-				L1S2 &= ~(1 << group);
+				L1S2 &= ~(1u << group);
 				jmp_ind |= JMP2_FLAG;
 			}
 			
@@ -523,17 +523,17 @@ __device__ __forceinline__ bool ProcessJumpDistance(u32 step_ind, u32 d_cur, u64
 		found_ind -= 2;
 		if (table[found_ind % MD_LEN] == d[0])
 			break;
-		found_ind -= 2;
-		if (table[found_ind % MD_LEN] == d[0])
+		found_ind = iter;
+		if (table[found_ind] == d[0])
 			break;
 		found_ind = -1;
 		break;
 	}
 	table[iter] = d[0];
+	*cur_ind = (iter + 1) % MD_LEN;
 
 	if (found_ind < 0)
-	{
-		*cur_ind = (iter + 1) % MD_LEN;
+	{		
 		if (d_cur & DP_FLAG)
 			BuildDP(Kparams, kang_ind, d);
 		return false;
@@ -547,8 +547,7 @@ __device__ __forceinline__ bool ProcessJumpDistance(u32 step_ind, u32 d_cur, u64
 	//calc index in LastPnts
 	u32 ind_LastPnts = MD_LEN - 1 - ((STEP_CNT - 1 - step_ind) % LoopSize);
 	u32 ind = atomicAdd(Kparams.LoopedKangs, 1);
-	Kparams.LoopedKangs[2 + ind] = kang_ind | (ind_LastPnts << 24);
-	*cur_ind = (iter + 1) % MD_LEN;
+	Kparams.LoopedKangs[2 + ind] = kang_ind | (ind_LastPnts << 28);
 	return true;
 }
 
@@ -570,7 +569,7 @@ __device__ __forceinline__ bool ProcessJumpDistance(u32 step_ind, u32 d_cur, u64
 // I don't see any reasons to catch L1S12 because we have 786432 kangs, if we lose 4 kangs every day, we lose 1460 kangs a year which is about 0.19%.
 // This degradation depends only on speed of a single kangaroo, so it's about the same for all 40xx GPUs (50xx GPUs will have +20% clock speed may be).
 // Since we lose kangs gradually, for a year we lose 0.19/2 = 0.1% of speed, so you should catch L1S12 only if you are going to solve same point for decades.
-// Or you can check all kangs for L1S10 on CPU once a day and restart looped kangs.
+// Or you can check all kangs for L1S12 on CPU once a day and restart looped kangs.
 // Level2 loops are very rare and they have even size too so they will be handled by the same code. We don't know what loop level we catch so we use JmpTable3 for escaping.
 extern "C" __launch_bounds__(BLOCK_SIZE, 1)
 __global__ void KernelB(const TKparams Kparams)
@@ -690,8 +689,8 @@ __global__ void KernelC(const TKparams Kparams)
 		u32 ind = atomicAdd(Kparams.LoopedKangs + 1, 1);
 		if (ind >= Kparams.LoopedKangs[0])
 			break;
-		u32 kang_ind = Kparams.LoopedKangs[2 + ind] & 0x00FFFFFF;
-		u32 last_ind = Kparams.LoopedKangs[2 + ind] >> 24;
+		u32 kang_ind = Kparams.LoopedKangs[2 + ind] & 0x0FFFFFFF;
+		u32 last_ind = Kparams.LoopedKangs[2 + ind] >> 28;
 
 		__align__(16) u64 x0[4], x[4];
 		__align__(16) u64 y0[4], y[4];
@@ -756,6 +755,12 @@ __global__ void KernelC(const TKparams Kparams)
 		Kparams.Kangs[kang_ind * 12 + 8] = d[0];
 		Kparams.Kangs[kang_ind * 12 + 9] = d[1];
 		Kparams.Kangs[kang_ind * 12 + 10] = d[2];
+
+#ifndef OLD_GPU
+		atomicAnd(&Kparams.L1S2[block_ind * BLOCK_SIZE + thr_ind], ~(1u << gr_ind));
+#else
+		atomicAnd(&((u64*)Kparams.L1S2)[block_ind * BLOCK_SIZE + thr_ind], ~(1ull << gr_ind));
+#endif
 	}
 }
 
@@ -861,12 +866,13 @@ __global__ void KernelGen(const TKparams Kparams)
 			Copy_u64_x4(ty, t2y);
 		}
 
-		if (kang_ind >= Kparams.KangCnt / 3)
-		{
-			AddPoints(t2x, t2y, x, y, x0, y0);
-			Copy_u64_x4(x, t2x);
-			Copy_u64_x4(y, t2y);
-		}
+		if (!Kparams.IsGenMode)
+			if (kang_ind >= Kparams.KangCnt / 3)
+			{
+				AddPoints(t2x, t2y, x, y, x0, y0);
+				Copy_u64_x4(x, t2x);
+				Copy_u64_x4(y, t2y);
+			}
 
 		Kparams.Kangs[kang_ind * 12 + 0] = x[0];
 		Kparams.Kangs[kang_ind * 12 + 1] = x[1];

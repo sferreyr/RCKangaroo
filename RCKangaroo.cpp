@@ -50,6 +50,10 @@ EcInt gStart;
 bool gStartSet;
 EcPoint gPubKey;
 u8 gGPUs_Mask[MAX_GPU_CNT];
+char gTamesFileName[1024];
+double gMax;
+bool gGenMode; //tames generation mode
+bool gIsOpsLimit;
 
 #pragma pack(push, 1)
 struct DBRec
@@ -205,9 +209,11 @@ void CheckNewPoints()
 		u8* p = pPntList2 + i * GPU_DP_SIZE;
 		memcpy(nrec.x, p, 12);
 		memcpy(nrec.d, p + 16, 22);
-		nrec.type = p[40];
+		nrec.type = gGenMode ? TAME : p[40];
 
 		DBRec* pref = (DBRec*)db.FindOrAddDataBlock((u8*)&nrec);
+		if (gGenMode)
+			continue;
 		if (pref)
 		{
 			//in db we dont store first 3 bytes so restore them
@@ -300,7 +306,7 @@ void ShowStats(u64 tm_start, double exp_ops, double dp_val)
 	int hours = (int)(sec - days * (3600 * 24)) / 3600;
 	int min = (int)(sec - days * (3600 * 24) - hours * 3600) / 60;
 	 
-	printf("%sSpeed: %d MKeys/s, Err: %d, DPs: %lluK/%lluK, Time: %llud:%02dh:%02dm, Est: %llud:%02dh:%02dm\r\n", IsBench ? "BENCH: " : "MAIN: ", speed, gTotalErrors, db.GetBlockCnt()/1000, est_dps_cnt/1000, days, hours, min, exp_days, exp_hours, exp_min);
+	printf("%sSpeed: %d MKeys/s, Err: %d, DPs: %lluK/%lluK, Time: %llud:%02dh:%02dm/%llud:%02dh:%02dm\r\n", gGenMode ? "GEN: " : (IsBench ? "BENCH: " : "MAIN: "), speed, gTotalErrors, db.GetBlockCnt()/1000, est_dps_cnt/1000, days, hours, min, exp_days, exp_hours, exp_min);
 }
 
 bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
@@ -323,6 +329,13 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 	ram += sizeof(TListRec) * 256 * 256 * 256; //3byte-prefix table
 	ram /= (1024 * 1024 * 1024); //GB
 	printf("SOTA method, estimated ops: 2^%.3f, RAM for DPs: %.3f GB. DP and GPU overheads not included!\r\n", log2(ops), ram);
+	gIsOpsLimit = false;
+	double MaxTotalOps = 0.0;
+	if (gMax > 0)
+	{
+		MaxTotalOps = gMax * ops;
+		printf("Max allowed number of ops: 2^%.3f\r\n", log2(MaxTotalOps));
+	}
 
 	u64 total_kangs = GpuKangs[0]->CalcKangCnt();
 	for (int i = 1; i < GpuCnt; i++)
@@ -331,6 +344,23 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 	double DPs_per_kang = path_single_kang / dp_val;
 	printf("Estimated DPs per kangaroo: %.3f.%s\r\n", DPs_per_kang, (DPs_per_kang < 5) ? " DP overhead is big, use less DP value if possible!" : "");
 
+	if (!gGenMode && gTamesFileName[0])
+	{
+		printf("load tames...\r\n");
+		if (db.LoadFromFile(gTamesFileName))
+		{
+			printf("tames loaded\r\n");
+			if (db.Header[0] != gRange)
+			{
+				printf("loaded tames have different range, they cannot be used, clear\r\n");
+				db.Clear();
+			}
+		}
+		else
+			printf("tames loading failed\r\n");
+	}
+
+	SetRndSeed(0); //use same seed to make tames from file compatible
 	PntTotalOps = 0;
 	PntIndex = 0;
 //prepare jumps
@@ -367,6 +397,7 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 		EcJumps3[i].dist.data[0] &= 0xFFFFFFFFFFFFFFFE; //must be even
 		EcJumps3[i].p = ec.MultiplyG(EcJumps3[i].dist);
 	}
+	SetRndSeed(GetTickCount64());
 
 	Int_HalfRange.Set(1);
 	Int_HalfRange.ShiftLeft(Range - 1);
@@ -420,6 +451,13 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 			ShowStats(tm0, ops, dp_val);
 			tm_stats = GetTickCount64();
 		}
+
+		if ((MaxTotalOps > 0.0) && (PntTotalOps > MaxTotalOps))
+		{
+			gIsOpsLimit = true;
+			printf("Operations limit reached\r\n");
+			break;
+		}
 	}
 
 	printf("Stopping work ...\r\n");
@@ -436,9 +474,23 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 #endif
 	}
 
+	if (gIsOpsLimit)
+	{
+		if (gGenMode)
+		{
+			printf("saving tames...\r\n");
+			db.Header[0] = gRange; 
+			if (db.SaveToFile(gTamesFileName))
+				printf("tames saved\r\n");
+			else
+				printf("tames saving failed\r\n");
+		}
+		db.Clear();
+		return false;
+	}
+
 	double K = (double)PntTotalOps / pow(2.0, Range / 2.0);
 	printf("Point solved, K: %.3f (with DP and GPU overheads)\r\n\r\n", K);
-
 	db.Clear();
 	*pk_res = gPrivKey;
 	return true;
@@ -517,6 +569,24 @@ bool ParseCommandLine(int argc, char* argv[])
 			ci++;
 		}
 		else
+		if (strcmp(argument, "-tames") == 0)
+		{
+			strcpy(gTamesFileName, argv[ci]);
+			ci++;
+		}
+		else
+		if (strcmp(argument, "-max") == 0)
+		{
+			double val = atof(argv[ci]);
+			ci++;
+			if (val < 0.001)
+			{
+				printf("error: invalid value for -max option\r\n");
+				return false;
+			}
+			gMax = val;
+		}
+		else
 		{
 			printf("error: unknown option %s\r\n", argument);
 			return false;
@@ -528,6 +598,15 @@ bool ParseCommandLine(int argc, char* argv[])
 			printf("error: you must also specify -dp, -range and -start options\r\n");
 			return false;
 		}
+	if (gTamesFileName[0] && !IsFileExist(gTamesFileName))
+	{
+		if (gMax == 0.0)
+		{
+			printf("error: you must also specify -max option to generate tames\r\n");
+			return false;
+		}
+		gGenMode = true;
+	}
 	return true;
 }
 
@@ -538,7 +617,7 @@ int main(int argc, char* argv[])
 #endif
 
 	printf("********************************************************************************\r\n");
-	printf("*                    RCKangaroo v2.0  (c) 2024 RetiredCoder                    *\r\n");
+	printf("*                    RCKangaroo v3.0  (c) 2024 RetiredCoder                    *\r\n");
 	printf("********************************************************************************\r\n\r\n");
 
 	printf("This software is free and open-source: https://github.com/RetiredC\r\n");
@@ -558,6 +637,10 @@ int main(int argc, char* argv[])
 	gDP = 0;
 	gRange = 0;
 	gStartSet = false;
+	gTamesFileName[0] = 0;
+	gMax = 0.0;
+	gGenMode = false;
+	gIsOpsLimit = false;
 	memset(gGPUs_Mask, 1, sizeof(gGPUs_Mask));
 	if (!ParseCommandLine(argc, argv))
 		return 0;
@@ -575,12 +658,9 @@ int main(int argc, char* argv[])
 	TotalOps = 0;
 	TotalSolved = 0;
 	gTotalErrors = 0;
-	//SetRndSeed(0); //dbg
-	SetRndSeed(GetTickCount64());
-
 	IsBench = gPubKey.x.IsZero();
 
-	if (!IsBench)
+	if (!IsBench && !gGenMode)
 	{
 		printf("\r\nMAIN MODE\r\n\r\n");
 		EcPoint PntToSolve, PntOfs;
@@ -603,15 +683,16 @@ int main(int argc, char* argv[])
 
 		if (!SolvePoint(PntToSolve, gRange, gDP, &pk_found))
 		{
-			printf("FATAL ERROR: SolvePoint failed\r\n");
-			return 0;
+			if (!gIsOpsLimit)
+				printf("FATAL ERROR: SolvePoint failed\r\n");
+			goto label_end;
 		}
 		pk_found.AddModP(gStart);
 		EcPoint tmp = ec.MultiplyG(pk_found);
 		if (!tmp.IsEqual(gPubKey))
 		{
 			printf("FATAL ERROR: SolvePoint found incorrect key\r\n");
-			return 0;
+			goto label_end;
 		}
 		//happy end
 		char s[100];
@@ -632,7 +713,10 @@ int main(int argc, char* argv[])
 	}
 	else
 	{
-		printf("\r\nBENCHMARK MODE\r\n");
+		if (gGenMode)
+			printf("\r\nTAMES GENERATION MODE\r\n");
+		else
+			printf("\r\nBENCHMARK MODE\r\n");
 		//solve points, show K
 		while (1)
 		{
@@ -650,13 +734,14 @@ int main(int argc, char* argv[])
 
 			if (!SolvePoint(PntToSolve, gRange, gDP, &pk_found))
 			{
-				printf("FATAL ERROR: SolvePoint failed\r\n");
-				return 0;
+				if (!gIsOpsLimit)
+					printf("FATAL ERROR: SolvePoint failed\r\n");
+				break;
 			}
 			if (!pk_found.IsEqual(pk))
 			{
 				printf("FATAL ERROR: Found key is wrong!\r\n");
-				return 0;
+				break;
 			}
 			TotalOps += PntTotalOps;
 			TotalSolved++;
@@ -666,7 +751,7 @@ int main(int argc, char* argv[])
 			//if (TotalSolved >= 100) break; //dbg
 		}
 	}
-
+label_end:
 	for (int i = 0; i < GpuCnt; i++)
 		delete GpuKangs[i];
 	DeInitEc();
