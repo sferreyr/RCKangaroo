@@ -334,7 +334,10 @@ bool SolvePoint(EcPoint PntToSolve, int Range, int DP, EcInt* pk_res)
 	if (gMax > 0)
 	{
 		MaxTotalOps = gMax * ops;
-		printf("Max allowed number of ops: 2^%.3f\r\n", log2(MaxTotalOps));
+		double ram_max = (32 + 4 + 4) * MaxTotalOps / dp_val; //+4 for grow allocation and memory fragmentation
+		ram_max += sizeof(TListRec) * 256 * 256 * 256; //3byte-prefix table
+		ram_max /= (1024 * 1024 * 1024); //GB
+		printf("Max allowed number of ops: 2^%.3f, max RAM for DPs: %.3f GB\r\n", log2(MaxTotalOps), ram_max);
 	}
 
 	u64 total_kangs = GpuKangs[0]->CalcKangCnt();
