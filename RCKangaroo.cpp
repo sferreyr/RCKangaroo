@@ -48,6 +48,7 @@ u32 gDP;
 u32 gRange;
 EcInt gStart;
 bool gStartSet;
+bool gRndStart; //generate random start offset
 EcPoint gPubKey;
 u8 gGPUs_Mask[MAX_GPU_CNT];
 char gTamesFileName[1024];
@@ -550,19 +551,24 @@ bool ParseCommandLine(int argc, char* argv[])
 			}
 			gRange = val;
 		}
-		else
-		if (strcmp(argument, "-start") == 0)
-		{	
-			if (!gStart.SetHexStr(argv[ci]))
-			{
-				printf("error: invalid value for -start option\r\n");
-				return false;
-			}
-			ci++;
-			gStartSet = true;
-		}
-		else
-		if (strcmp(argument, "-pubkey") == 0)
+               else
+                if (strcmp(argument, "-start") == 0)
+                {
+                        if (!gStart.SetHexStr(argv[ci]))
+                        {
+                                printf("error: invalid value for -start option\r\n");
+                                return false;
+                        }
+                        ci++;
+                        gStartSet = true;
+                }
+                else
+                if (strcmp(argument, "-rndstart") == 0)
+                {
+                        gRndStart = true;
+                }
+                else
+                if (strcmp(argument, "-pubkey") == 0)
 		{
 			if (!gPubKey.SetHexStr(argv[ci]))
 			{
@@ -589,17 +595,28 @@ bool ParseCommandLine(int argc, char* argv[])
 			}
 			gMax = val;
 		}
-		else
-		{
-			printf("error: unknown option %s\r\n", argument);
-			return false;
-		}
-	}
-	if (!gPubKey.x.IsZero())
-		if (!gStartSet || !gRange || !gDP)
-		{
-			printf("error: you must also specify -dp, -range and -start options\r\n");
-			return false;
+                else
+                {
+                        printf("error: unknown option %s\r\n", argument);
+                        return false;
+                }
+        }
+        if (gRndStart)
+        {
+                if (!gRange)
+                {
+                        printf("error: -rndstart requires -range option\r\n");
+                        return false;
+                }
+                SetRndSeed(GetTickCount64());
+                gStart.RndBits(gRange);
+                gStartSet = true;
+        }
+        if (!gPubKey.x.IsZero())
+                if (!gStartSet || !gRange || !gDP)
+                {
+                        printf("error: you must also specify -dp, -range and -start options\r\n");
+                        return false;
 		}
 	if (gTamesFileName[0] && !IsFileExist(gTamesFileName))
 	{
@@ -636,11 +653,12 @@ int main(int argc, char* argv[])
 	printf("DEBUG MODE\r\n\r\n");
 #endif
 
-	InitEc();
-	gDP = 0;
-	gRange = 0;
-	gStartSet = false;
-	gTamesFileName[0] = 0;
+        InitEc();
+        gDP = 0;
+        gRange = 0;
+        gStartSet = false;
+        gRndStart = false;
+        gTamesFileName[0] = 0;
 	gMax = 0.0;
 	gGenMode = false;
 	gIsOpsLimit = false;
