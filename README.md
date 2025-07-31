@@ -25,6 +25,7 @@ Discussion thread: https://bitcointalk.org/index.php?topic=5517607
 <b>-pubkey</b>		public key to solve, both compressed and uncompressed keys are supported. If not specified, software starts in benchmark mode and solves random keys. 
 
 <b>-start</b>		start offset of the key, in hex. Mandatory if "-pubkey" option is specified. For example, for puzzle #85 start offset is "1000000000000000000000". 
+<b>-rndstart</b>       generate random start offset inside the specified range. Requires "-range" option and overrides "-start".
 
 <b>-range</b>		bit range of private the key. Mandatory if "-pubkey" option is specified. For example, for puzzle #85 bit range is "84" (84 bits). Must be in range 32...170. 
 
